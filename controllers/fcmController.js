@@ -1,4 +1,4 @@
-const UserDevice = require('../models/UserDevice');
+﻿const UserDevice = require('../models/UserDevice');
 const adhan = require('adhan');
 const { getApps, initializeApp, cert } = require('firebase-admin/app');
 const { getMessaging } = require('firebase-admin/messaging');
@@ -22,6 +22,14 @@ if (!getApps().length) {
   }
 }
 
+function getLocalDateString(date = new Date(), timezone = 'Asia/Karachi') {
+  try {
+    return new Date(date).toLocaleDateString('en-CA', { timeZone: timezone });
+  } catch (_) {
+    return date.toISOString().split('T')[0];
+  }
+}
+
 async function sendHighPriorityPush(fcmToken, prayerName, dateStr) {
   const identifier = `prayer-${prayerName.toLowerCase()}-${dateStr}`;
 
@@ -31,13 +39,13 @@ async function sendHighPriorityPush(fcmToken, prayerName, dateStr) {
       prayerName,
       identifier,
       targetTimestamp: String(Date.now()),
-      title: `?? ${prayerName} Prayer Time`,
+      title: `🕌 ${prayerName} Prayer Time`,
       body: `It's time for ${prayerName} Prayer. Begin your Salah.`,
     },
     android: {
       priority: 'high',
       notification: {
-        title: `?? ${prayerName} Prayer Time`,
+        title: `🕌 ${prayerName} Prayer Time`,
         body: `It's time for ${prayerName} Prayer. Begin your Salah.`,
         sound: 'azan',
         channelId: 'prayer_alarm_channel_v13',
@@ -53,7 +61,7 @@ async function sendHighPriorityPush(fcmToken, prayerName, dateStr) {
       payload: {
         aps: {
           alert: {
-            title: `?? ${prayerName} Prayer Time`,
+            title: `🕌 ${prayerName} Prayer Time`,
             body: `It's time for ${prayerName} Prayer. Begin your Salah.`,
           },
           sound: 'azan.caf',
@@ -99,12 +107,14 @@ exports.cronCheckPrayerPush = async (req, res) => {
   try {
     const devices = await UserDevice.find({});
     const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
     let pushCount = 0;
     const details = [];
 
     for (const device of devices) {
       try {
+        const deviceTz = device.timezone || 'Asia/Karachi';
+        const dateStr = getLocalDateString(now, deviceTz);
+
         const coordinates = new adhan.Coordinates(device.latitude, device.longitude);
         const params = adhan.CalculationMethod.Karachi();
         params.madhab = adhan.Madhab.Hanafi;
@@ -119,9 +129,10 @@ exports.cronCheckPrayerPush = async (req, res) => {
         ];
 
         for (const prayer of prayers) {
+          if (!prayer.time) continue;
           const diffMs = Math.abs(now.getTime() - prayer.time.getTime());
-          // If within 2 minutes window of prayer time
-          if (diffMs <= 2 * 60 * 1000) {
+          // 3-minute window for server cron check
+          if (diffMs <= 3 * 60 * 1000) {
             const pushKey = `${prayer.name}-${dateStr}`;
             if (device.lastPushedPrayer !== pushKey) {
               const msgId = await sendHighPriorityPush(device.fcmToken, prayer.name, dateStr);
@@ -157,10 +168,11 @@ exports.testSendPush = async (req, res) => {
     const { prayerName = 'Test Prayer' } = req.body;
     const devices = await UserDevice.find({});
     const results = [];
-    const dateStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
 
     for (const device of devices) {
       try {
+        const dateStr = getLocalDateString(now, device.timezone);
         const msgId = await sendHighPriorityPush(device.fcmToken, prayerName, dateStr);
         results.push({ token: device.fcmToken.substring(0, 12) + '...', status: 'sent', messageId: msgId });
       } catch (err) {

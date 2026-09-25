@@ -1,4 +1,4 @@
-const firebaseAdmin = require('firebase-admin');
+﻿const firebaseAdmin = require('firebase-admin');
 const { getMessaging } = require('firebase-admin/messaging');
 const express = require('express');
 const cron = require('node-cron');
@@ -26,6 +26,14 @@ try {
 }
 
 const userDevices = new Map();
+
+function getLocalDateString(date = new Date(), timezone = 'Asia/Karachi') {
+  try {
+    return new Date(date).toLocaleDateString('en-CA', { timeZone: timezone });
+  } catch (_) {
+    return date.toISOString().split('T')[0];
+  }
+}
 
 app.post('/api/fcm/register', (req, res) => {
   const { userId, token, fcmToken, platform, latitude, longitude, timezone } = req.body;
@@ -64,13 +72,13 @@ async function sendHighPriorityPrayerPush(device, prayerName, dateStr) {
       prayerName,
       identifier,
       targetTimestamp: String(Date.now()),
-      title: `?? ${prayerName} Prayer Time`,
+      title: `🕌 ${prayerName} Prayer Time`,
       body: `It's time for ${prayerName} Prayer. Begin your Salah.`,
     },
     android: {
       priority: 'high',
       notification: {
-        title: `?? ${prayerName} Prayer Time`,
+        title: `🕌 ${prayerName} Prayer Time`,
         body: `It's time for ${prayerName} Prayer. Begin your Salah.`,
         sound: 'azan',
         channelId: 'prayer_alarm_channel_v13',
@@ -86,7 +94,7 @@ async function sendHighPriorityPrayerPush(device, prayerName, dateStr) {
       payload: {
         aps: {
           alert: {
-            title: `?? ${prayerName} Prayer Time`,
+            title: `🕌 ${prayerName} Prayer Time`,
             body: `It's time for ${prayerName} Prayer. Begin your Salah.`,
           },
           sound: 'azan.caf',
@@ -110,10 +118,11 @@ async function sendHighPriorityPrayerPush(device, prayerName, dateStr) {
 app.post('/api/fcm/test-send', async (req, res) => {
   const { prayerName = 'Test Prayer' } = req.body;
   const results = [];
-  const dateStr = new Date().toISOString().split('T')[0];
+  const now = new Date();
 
   for (const [token, device] of userDevices.entries()) {
     try {
+      const dateStr = getLocalDateString(now, device.timezone);
       const resData = await sendHighPriorityPrayerPush(device, prayerName, dateStr);
       results.push({ token: token.substring(0, 15) + '...', status: 'sent', messageId: resData.messageId });
     } catch (err) {
@@ -127,18 +136,20 @@ app.post('/api/fcm/test-send', async (req, res) => {
   });
 });
 
-cron.schedule('0 0 * * *', () => {
-  console.log('[FCM SCHEDULER] Running daily midnight prayer push calculation...');
-  const today = new Date();
-  const dateStr = today.toISOString().split('T')[0];
+// Run minute-by-minute accurate push check for registered devices
+cron.schedule('* * * * *', () => {
+  const now = new Date();
 
   for (const device of userDevices.values()) {
     try {
+      const deviceTz = device.timezone || 'Asia/Karachi';
+      const dateStr = getLocalDateString(now, deviceTz);
+
       const coordinates = new adhan.Coordinates(device.latitude, device.longitude);
       const params = adhan.CalculationMethod.Karachi();
       params.madhab = adhan.Madhab.Hanafi;
 
-      const prayerTimes = new adhan.PrayerTimes(coordinates, today, params);
+      const prayerTimes = new adhan.PrayerTimes(coordinates, now, params);
       const prayers = [
         { name: 'Fajr', time: prayerTimes.fajr },
         { name: 'Dhuhr', time: prayerTimes.dhuhr },
@@ -148,15 +159,18 @@ cron.schedule('0 0 * * *', () => {
       ];
 
       for (const prayer of prayers) {
-        const delay = prayer.time.getTime() - Date.now();
-        if (delay > 0) {
-          setTimeout(async () => {
-            await sendHighPriorityPrayerPush(device, prayer.name, dateStr);
-          }, delay);
+        if (!prayer.time) continue;
+        const diffMs = Math.abs(now.getTime() - prayer.time.getTime());
+        if (diffMs <= 60 * 1000) {
+          const pushKey = `${prayer.name}-${dateStr}`;
+          if (device.lastPushedPrayer !== pushKey) {
+            device.lastPushedPrayer = pushKey;
+            sendHighPriorityPrayerPush(device, prayer.name, dateStr).catch(() => {});
+          }
         }
       }
     } catch (err) {
-      console.error(`[FCM SCHEDULER ERROR] Failed to calculate prayer times for device:`, err);
+      console.error(`[FCM SCHEDULER ERROR] Failed to calculate prayer times:`, err.message);
     }
   }
 });
