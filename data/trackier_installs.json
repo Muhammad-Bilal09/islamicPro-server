@@ -1,0 +1,20 @@
+[
+  {
+    "clickId": "TEST123",
+    "status": "success",
+    "processedAt": "2026-09-25T08:18:37.169Z",
+    "trackierResponseStatus": 200,
+    "trackierResponseBody": "{\"success\":true,\"message\":\"Conversion recorded\"}",
+    "requestDurationMs": 122,
+    "errorMessage": null
+  },
+  {
+    "clickId": "FAIL_TRACKIER",
+    "status": "failed",
+    "processedAt": "2026-09-25T08:18:37.407Z",
+    "trackierResponseStatus": 500,
+    "trackierResponseBody": "{\"error\":\"Trackier internal error\"}",
+    "requestDurationMs": 15,
+    "errorMessage": "HTTP Status 500"
+  }
+]

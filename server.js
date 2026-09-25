@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
@@ -9,6 +9,7 @@ const { connectDB } = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const quranRoutes = require('./routes/quranRoutes');
 const fcmRoutes = require('./routes/fcmRoutes');
+const trackierRoutes = require('./routes/trackierRoutes');
 const { notFound, errorHandler } = require('./middlewares/errorMiddleware');
 
 connectDB();
@@ -35,6 +36,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/quran', quranRoutes);
 app.use('/api/fcm', fcmRoutes);
+app.use('/api/trackier', trackierRoutes);
 
 app.use(notFound);
 
